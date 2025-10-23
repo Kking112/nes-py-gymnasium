@@ -1,15 +1,19 @@
 from nes_py import NESEnv
 import tqdm
-env = NESEnv('./nes_py/tests/games/super-mario-bros-1.nes')
+env = NESEnv('./nes_py/tests/games/super-mario-bros-1.nes', render_mode='human')
 
 done = True
 
 try:
     for _ in tqdm.tqdm(range(5000)):
         if done:
-            state = env.reset()
+            state, _ = env.reset()
             done = False
         else:
-            state, reward, done, info = env.step(env.action_space.sample())
+            state, reward, terminated, truncated, info = env.step(env.action_space.sample())
+            env.render()
+            done = terminated or truncated
 except KeyboardInterrupt:
     pass
+finally:
+    env.close()

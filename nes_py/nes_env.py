@@ -4,10 +4,12 @@ import glob
 import itertools
 import os
 import sys
-import gym
-from gym.spaces import Box
-from gym.spaces import Discrete
+import gymnasium as gym
+from gymnasium.spaces import Box
+from gymnasium.spaces import Discrete
 import numpy as np
+import warnings
+from gymnasium.utils import seeding
 from ._rom import ROM
 from ._image_viewer import ImageViewer
 
@@ -85,14 +87,17 @@ class NESEnv(gym.Env):
 
     # relevant meta-data about the environment
     metadata = {
+        'render_modes': ['rgb_array', 'human'],
+        'render_fps': 60,
+        # keep legacy keys temporarily for compatibility
         'render.modes': ['rgb_array', 'human'],
-        'video.frames_per_second': 60
+        'video.frames_per_second': 60,
     }
 
     # the legal range for rewards for this environment
     reward_range = (-float('inf'), float('inf'))
 
-    # observation space for the environment is static across all instances
+# observation space for the environment is static across all instances
     observation_space = Box(
         low=0,
         high=255,
@@ -103,7 +108,7 @@ class NESEnv(gym.Env):
     # action space is a bitmap of button press values for the 8 NES buttons
     action_space = Discrete(256)
 
-    def __init__(self, rom_path):
+    def __init__(self, rom_path, render_mode: "str | None" = None):
         """
         Create a new NES environment.
 
@@ -133,12 +138,14 @@ class NESEnv(gym.Env):
         elif rom.mapper not in {0, 1, 2, 3}:
             msg = 'ROM has an unsupported mapper number {}. please see https://github.com/Kautenja/nes-py/issues/28 for more information.'
             raise ValueError(msg.format(rom.mapper))
-        # create a dedicated random number generator for the environment
-        self.np_random = np.random.RandomState()
+        # create/store RNG using Gymnasium's seeding util
+        self.np_random, _ = seeding.np_random(None)
         # store the ROM path
         self._rom_path = rom_path
         # initialize the C++ object for running the environment
         self._env = _LIB.Initialize(self._rom_path)
+        # Gymnasium render pattern
+        self.render_mode = render_mode
         # setup a placeholder for a 'human' render mode viewer
         self.viewer = None
         # setup a placeholder for a pointer to a backup state
@@ -225,39 +232,25 @@ class NESEnv(gym.Env):
 
     def seed(self, seed=None):
         """
-        Set the seed for this environment's random number generator.
-
-        Returns:
-            list<bigint>: Returns the list of seeds used in this env's random
-              number generators. The first value in the list should be the
-              "main" seed, or the value which a reproducer should pass to
-              'seed'. Often, the main seed equals the provided 'seed', but
-              this won't be true if seed=None, for example.
-
+        Gymnasium prefers passing seed to reset(). This is kept for compatibility.
         """
-        # if there is no seed, return an empty list
+        warnings.warn(
+            "seed() is deprecated; pass seed to reset(seed=...) instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if seed is None:
             return []
-        # set the random number seed for the NumPy random number generator
-        self.np_random.seed(seed)
-        # return the list of seeds used by RNG(s) in the environment
-        return [seed]
+        self.np_random, actual_seed = seeding.np_random(seed)
+        return [int(actual_seed)]
 
-    def reset(self, seed=None, options=None, return_info=None):
+    def reset(self, *, seed: "int | None" = None, options: "dict | None" = None):
         """
-        Reset the state of the environment and returns an initial observation.
-
-        Args:
-            seed (int): an optional random number seed for the next episode
-            options (any): unused
-            return_info (any): unused
-
-        Returns:
-            state (np.ndarray): next frame as a result of the given action
-
+        Reset the state of the environment and return (observation, info).
         """
         # Set the seed.
-        self.seed(seed)
+        if seed is not None:
+            self.np_random, _ = seeding.np_random(seed)
         # call the before reset callback
         self._will_reset()
         # reset the emulator
@@ -269,8 +262,8 @@ class NESEnv(gym.Env):
         self._did_reset()
         # set the done flag to false
         self.done = False
-        # return the screen from the emulator
-        return self.screen
+        # return the screen from the emulator and empty info
+        return self.screen, {}
 
     def _did_reset(self):
         """Handle any RAM hacking after a reset occurs."""
@@ -278,41 +271,33 @@ class NESEnv(gym.Env):
 
     def step(self, action):
         """
-        Run one frame of the NES and return the relevant observation data.
-
-        Args:
-            action (byte): the bitmap determining which buttons to press
-
-        Returns:
-            a tuple of:
-            - state (np.ndarray): next frame as a result of the given action
-            - reward (float) : amount of reward returned after given action
-            - done (boolean): whether the episode has ended
-            - info (dict): contains auxiliary diagnostic information
-
+        Run one frame of the NES and return Gymnasium's 5-tuple.
         """
         # if the environment is done, raise an error
         if self.done:
             raise ValueError('cannot step in a done environment! call `reset`')
         # set the action on the controller
         self.controllers[0][:] = action
-        # pass the action to the emulator as an unsigned byte
+        # perform a step on the emulator
         _LIB.Step(self._env)
         # get the reward for this step
         reward = float(self._get_reward())
-        # get the done flag for this step
-        self.done = bool(self._get_done())
+        # get the done flag for this step (Gymnasium: terminated)
+        terminated = bool(self._get_done())
+        self.done = terminated
         # get the info for this step
         info = self._get_info()
         # call the after step callback
-        self._did_step(self.done)
+        self._did_step(terminated)
         # bound the reward in [min, max]
         if reward < self.reward_range[0]:
             reward = self.reward_range[0]
         elif reward > self.reward_range[1]:
             reward = self.reward_range[1]
+        # truncated currently unsupported (no time limit wrapper)
+        truncated = False
         # return the screen from the emulator and other relevant data
-        return self.screen, reward, self.done, info
+        return self.screen, reward, terminated, truncated, info
 
     def _get_reward(self):
         """Return the reward after a step occurs."""
@@ -352,29 +337,28 @@ class NESEnv(gym.Env):
         if self.viewer is not None:
             self.viewer.close()
 
-    def render(self, mode='human'):
+    def render(self, mode=None):
         """
-        Render the environment.
-
-        Args:
-            mode (str): the mode to render with:
-            - human: render to the current display
-            - rgb_array: Return an numpy.ndarray with shape (x, y, 3),
-              representing RGB values for an x-by-y pixel image
-
-        Returns:
-            a numpy array if mode is 'rgb_array', None otherwise
-
+        Gymnasium render: use render_mode from __init__.
+        If mode is provided and render_mode is None, use it (compat) and warn.
         """
-        if mode == 'human':
+        effective_mode = self.render_mode
+        if mode is not None and self.render_mode is None:
+            warnings.warn(
+                "Passing mode to render() is deprecated; set render_mode in __init__",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            effective_mode = mode
+        if effective_mode == 'human':
             # if the viewer isn't setup, import it and create one
             if self.viewer is None:
                 # get the caption for the ImageViewer
-                if self.spec is None:
+                if getattr(self, 'spec', None) is None:
                     # if there is no spec, just use the .nes filename
                     caption = self._rom_path.split('/')[-1]
                 else:
-                    # set the caption to the OpenAI Gym id
+                    # set the caption to the Gymnasium id
                     caption = self.spec.id
                 # create the ImageViewer to display frames
                 self.viewer = ImageViewer(
@@ -384,11 +368,14 @@ class NESEnv(gym.Env):
                 )
             # show the screen on the image viewer
             self.viewer.show(self.screen)
-        elif mode == 'rgb_array':
+        elif effective_mode == 'rgb_array':
             return self.screen
+        elif effective_mode is None:
+            # no-op when no render mode specified
+            return None
         else:
             # unpack the modes as comma delineated strings ('a', 'b', ...)
-            render_modes = [repr(x) for x in self.metadata['render.modes']]
+            render_modes = [repr(x) for x in self.metadata.get('render_modes', [])]
             msg = 'valid render modes are: {}'.format(', '.join(render_modes))
             raise NotImplementedError(msg)
 

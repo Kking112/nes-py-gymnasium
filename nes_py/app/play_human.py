@@ -1,5 +1,5 @@
 """A method to play gym environments using human IO inputs."""
-import gym
+import gymnasium as gym
 import time
 from pyglet import clock
 from .._image_viewer import ImageViewer
@@ -46,7 +46,8 @@ def play_human(env: gym.Env, callback=None):
     # create a done flag for the environment
     done = True
     # prepare frame rate limiting
-    target_frame_duration = 1 / env.metadata['video.frames_per_second']
+    fps = env.metadata.get('render_fps', env.metadata.get('video.frames_per_second', 60))
+    target_frame_duration = 1 / fps
     last_frame_time = 0
     # start the main game loop
     try:
@@ -62,11 +63,12 @@ def play_human(env: gym.Env, callback=None):
             # reset if the environment is done
             if done:
                 done = False
-                state = env.reset()
+                state, _ = env.reset()
                 viewer.show(env.unwrapped.screen)
             # unwrap the action based on pressed relevant keys
             action = keys_to_action.get(viewer.pressed_keys, _NOP)
-            next_state, reward, done, _ = env.step(action)
+            next_state, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
             viewer.show(env.unwrapped.screen)
             # pass the observation data through the callback
             if callback is not None:

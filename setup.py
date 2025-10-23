@@ -1,12 +1,7 @@
 """The setup script for installing and distributing the nes-py package."""
-import os
 from glob import glob
 from setuptools import setup, find_packages, Extension
-
-
-# set the compiler for the C++ framework
-os.environ['CC'] = 'g++'
-os.environ['CCX'] = 'g++'
+import platform
 
 
 # read the contents from the README file
@@ -25,10 +20,13 @@ SOURCES = glob('nes_py/nes/src/*.cpp') + glob('nes_py/nes/src/mappers/*.cpp')
 # This directory has to be included using MANIFEST.in too to include the
 # headers with sdist
 INCLUDE_DIRS = ['nes_py/nes/include']
-# Build arguments to pass to the compiler
-EXTRA_COMPILE_ARGS = ['-std=c++1y', '-pipe', '-O3']
+# Build arguments to pass to the compiler (avoid GCC-only flags on Windows)
+EXTRA_COMPILE_ARGS = []
+if platform.system() != 'Windows':
+    EXTRA_COMPILE_ARGS.extend(['-O3'])
 # The official extension using the name, source, headers, and build args
-LIB_NES_ENV = Extension(LIB_NAME,
+LIB_NES_ENV = Extension(
+    LIB_NAME,
     sources=SOURCES,
     include_dirs=INCLUDE_DIRS,
     extra_compile_args=EXTRA_COMPILE_ARGS,
@@ -38,10 +36,10 @@ LIB_NES_ENV = Extension(LIB_NAME,
 setup(
     name='nes_py',
     version='8.2.1',
-    description='An NES Emulator and OpenAI Gym interface',
+    description='An NES Emulator and Gymnasium interface',
     long_description=README,
     long_description_content_type='text/markdown',
-    keywords='NES Emulator OpenAI-Gym',
+    keywords='NES Emulator Gymnasium',
     classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Developers',
@@ -52,11 +50,9 @@ setup(
         'Operating System :: Microsoft :: Windows',
         'Programming Language :: C++',
         'Programming Language :: Python :: 3 :: Only',
-        'Programming Language :: Python :: 3.5',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
-        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
+        'Programming Language :: Python :: 3.13',
         'Topic :: Games/Entertainment',
         'Topic :: Software Development :: Libraries :: Python Modules',
         'Topic :: System :: Emulators',
@@ -68,11 +64,12 @@ setup(
     packages=find_packages(exclude=['tests', '*.tests', '*.tests.*']),
     ext_modules=[LIB_NES_ENV],
     zip_safe=False,
+    python_requires='>=3.11',
     install_requires=[
-        'gym>=0.17.2',
-        'numpy>=1.18.5',
-        'pyglet<=1.5.21,>=1.4.0',
-        'tqdm>=4.48.2',
+        'gymnasium>=0.29',
+        'numpy>=1.26',
+        'pyglet>=2.0',
+        'tqdm>=4.64',
     ],
     entry_points={
         'console_scripts': [
