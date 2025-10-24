@@ -25,5 +25,6 @@ jobs:
           python -V
           uv --version
       - run: uv venv
-      - run: uv pip install -e .
+      - run: source .venv/bin/activate
+      - run: pip install -e .
       - run: python -m unittest discover -v
