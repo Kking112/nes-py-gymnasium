@@ -43,6 +43,7 @@ class ImageViewer(object):
         self._window = None
         self._pressed_keys = []
         self._is_escape_pressed = False
+        self._gc_disabled = False
 
     @property
     def is_open(self):
@@ -96,12 +97,20 @@ class ImageViewer(object):
 
     def open(self):
         """Open the window."""
+        # reduce GC-induced stutters during real-time rendering
+        try:
+            import gc
+            if not self._gc_disabled:
+                gc.disable()
+                self._gc_disabled = True
+        except Exception:
+            pass
         # create a window for this image viewer instance
         self._window = self.pyglet.window.Window(
             caption=self.caption,
             height=self.height,
             width=self.width,
-            vsync=False,
+            vsync=True,
             resizable=True,
         )
 
@@ -115,6 +124,14 @@ class ImageViewer(object):
         if self.is_open:
             self._window.close()
             self._window = None
+        # re-enable GC after closing the window
+        try:
+            if self._gc_disabled:
+                import gc
+                gc.enable()
+                self._gc_disabled = False
+        except Exception:
+            pass
 
     def show(self, frame):
         """

@@ -351,6 +351,12 @@ class NESEnv(gym.Env):
             )
             effective_mode = mode
         if effective_mode == 'human':
+            # allow pyglet scheduled events to process
+            if self.viewer is not None:
+                try:
+                    self.viewer.pyglet.clock.tick()
+                except Exception:
+                    pass
             # if the viewer isn't setup, import it and create one
             if self.viewer is None:
                 # get the caption for the ImageViewer

@@ -25,8 +25,7 @@ def main() -> None:
 
     try:
         _, _ = env.reset(seed=args.seed)
-        fps = env.metadata.get("render_fps", env.metadata.get("video.frames_per_second", 60))
-        target_dt = 1.0 / float(fps) if fps else 0.0
+        # Let the window vsync drive the frame pace; avoid Python-level sleeps
         i = 0
         while steps <= 0 or i < steps:
             i += 1
@@ -35,8 +34,6 @@ def main() -> None:
             env.render()
             if terminated or truncated:
                 _, _ = env.reset()
-            if target_dt > 0:
-                time.sleep(target_dt)
     except KeyboardInterrupt:
         pass
     finally:
